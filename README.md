@@ -6,6 +6,37 @@ This project provides a simple command-line tool to convert text files (.txt) in
 
 - Converts multiple text files to DOCX format in a specified folder.
 - Each line in the text file is converted into a separate paragraph in the DOCX file.
+- Stream-based file reading for improved memory efficiency (handles large files safely).
+- Asynchronous file processing using Node.js non-blocking I/O.
+- Concurrency-controlled batch processing (prevents system overload).
+- Automatic output file naming (file.txt → file.docx).
+- Error handling for invalid paths, unreadable files, and write failures.
+- Cross-platform compatibility using Node.js path utilities.
+
+## Complexity Analysis
+
+Let:
+
+n = number of .txt files in the directory
+
+m = average size (in characters) of each file
+
+Time Complexity : O(n × m)
+
+Explanation:
+- Each file is read once.
+- Each character is processed once.
+- Each line is converted into a DOCX paragraph.
+
+Space Complexity
+
+Without Streams (Basic Version):
+- O(m) per file
+(Entire file loaded into memory)
+
+With Streams (Optimized Version):
+- O(line_size)
+(Processes file chunk-by-chunk, significantly reducing memory usage)
 
 ## Installation
 
