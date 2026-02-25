@@ -1,67 +1,103 @@
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 
-const inputFolder = process.argv[2]; // Get folder path from command line
+// Get input folder from CLI
+const inputFolder = process.argv[2];
 
 if (!inputFolder) {
   console.error("⚠️ Please provide a folder path.");
   process.exit(1);
 }
 
-fs.readdir(inputFolder, (err, files) => {
-  if (err) {
-    console.error("Cannot read folder:", err);
-    return;
+// Concurrency limiter 
+const MAX_CONCURRENT_FILES = 5;
+let activeCount = 0;
+const queue = [];
+
+function runNext() {
+  if (queue.length > 0 && activeCount < MAX_CONCURRENT_FILES) {
+    const task = queue.shift();
+    activeCount++;
+    task().finally(() => {
+      activeCount--;
+      runNext();
+    });
   }
+}
 
-  files.forEach((file) => {
-    if (path.extname(file) === ".txt") {
-      const filePath = path.join(inputFolder, file);
-      fs.readFile(filePath, "utf8", async (err, data) => {
-        if (err) {
-          console.error(`Error reading file ${file}:`, err);
-          return;
-        }
+function enqueue(task) {
+  queue.push(task);
+  process.nextTick(runNext);
+}
 
+// Convert single file using streams
+async function convertFile(filePath, outputPath) {
+  return new Promise((resolve, reject) => {
+    const paragraphs = [];
+
+    const readStream = fs.createReadStream(filePath, { encoding: "utf8" });
+
+    const rl = readline.createInterface({
+      input: readStream,
+      crlfDelay: Infinity,
+    });
+
+    rl.on("line", (line) => {
+      paragraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: line,
+              size: 26, // 13pt font
+            }),
+          ],
+        })
+      );
+    });
+
+    rl.on("close", async () => {
+      try {
         const doc = new Document({
           sections: [
             {
-              // children: [
-              //   new Paragraph({
-              //     children: [new TextRun({
-              //       text: data,
-              //       size: 26, // 13pt font size
-              //     })],
-              //   }),
-              // ],
-              children: data.split("\n").map((line) =>
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: line,
-                      size: 26, // 13pt
-                    }),
-                  ],
-                })
-              ),
+              children: paragraphs,
             },
           ],
         });
 
         const buffer = await Packer.toBuffer(doc);
+        await fs.promises.writeFile(outputPath, buffer);
+
+        console.log(`✅ Created: ${outputPath}`);
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    rl.on("error", reject);
+    readStream.on("error", reject);
+  });
+}
+
+// Read directory
+fs.promises
+  .readdir(inputFolder)
+  .then((files) => {
+    files.forEach((file) => {
+      if (path.extname(file) === ".txt") {
+        const filePath = path.join(inputFolder, file);
         const outputPath = path.join(
           inputFolder,
           file.replace(/\.txt$/, ".docx")
         );
-        fs.writeFile(outputPath, buffer, (err) => {
-          if (err) {
-            console.error(`Error writing file ${outputPath}:`, err);
-          } else {
-            console.log(`✅ Created: ${outputPath}`);
-          }
-        });
-      });
-    }
+
+        enqueue(() => convertFile(filePath, outputPath));
+      }
+    });
+  })
+  .catch((err) => {
+    console.error("❌ Cannot read folder:", err);
   });
-});
